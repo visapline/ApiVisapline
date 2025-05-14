@@ -28,22 +28,7 @@ namespace ApiPruebaVive.Controllers
             return await _context.Contrato.ToListAsync();
         }
 
-        // GET: api/Contratoes/estadisticas
-        [HttpGet("estadisticas")]
-        public async Task<ActionResult<IEnumerable<object>>> GetEstadisticasContratos()
-        {
-            var contratoCounts = await _context.Contrato
-                .GroupBy(c => c.EstadoC)
-                .Select(group => new
-                {
-                    Estado = group.Key,
-                    Cantidad = group.Count()
-                })
-                .ToListAsync();
-
-            return Ok(contratoCounts);
-        }
-
+      
         // GET: api/Contratoes/5
         [HttpGet("{id}")]
         public async Task<ActionResult<Contrato>> GetContrato(int id)
