@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ApiPruebaVive.Context;
 using ApiPruebaVive.Models;
+using ApiPruebaVive.Dto;
 
 namespace ApiPruebaVive.Controllers
 {
@@ -100,9 +101,58 @@ namespace ApiPruebaVive.Controllers
             return NoContent();
         }
 
+
         private bool OltExists(int id)
         {
             return _context.Olt.Any(e => e.IdOlt == id);
         }
+
+
+
+        // En OltsController.cs
+
+        [HttpPost("seleccionar-puerto")]
+        public async Task<IActionResult> SeleccionarPuerto([FromBody] SeleccionarPuertoRequest request)
+        {
+            try
+            {
+                var olt = await _context.Olt
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(o => o.NombreOlt == request.TxtOlt);
+
+                if (olt == null)
+                    return NotFound("OLT no encontrada");
+
+                // Obtengo atributos, por si los necesitas luego (pero no para IP y puerto)
+                var atributos = await _context.AtributoOlt
+                    .Where(a => a.IdOlt == olt.IdOlt)
+                    .ToListAsync();
+
+                var ip = olt.Ip;
+                var puertoTelnet = olt.Puerto;
+
+                if (string.IsNullOrWhiteSpace(ip) || puertoTelnet <= 0)
+                    return StatusCode(500, "Faltan datos de conexión (IP o puerto)");
+
+                // Probar conexión Telnet
+                var telnet = new TelnetConnection(ip, puertoTelnet);
+                var loginRespuesta = telnet.Login(olt.UsuarioOlt, olt.ContraseniaOlt, 3000);
+                telnet.desconectar();
+
+                return Ok(new
+                {
+                    mensaje = "Conexión Telnet exitosa",
+                    respuestaLogin = loginRespuesta
+                });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"ERROR: {ex.Message}");
+                Console.WriteLine(ex.StackTrace);
+                return StatusCode(500, "Error interno");
+            }
+        }
+
+
     }
 }

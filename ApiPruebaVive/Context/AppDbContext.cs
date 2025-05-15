@@ -22,6 +22,8 @@ namespace ApiPruebaVive.Context
         public DbSet<Ticket> Ticket { get; set; } // DbSet para la tabla 'ticket' en la base de datos
         public DbSet<Incidencias> Incidencia { get; set; } // DbSet para la tabla 'incidencias' en la base de datos
         public DbSet<Servicios> Servicio { get; set; } // DbSet para la tabla 'servicios' en la base de datos
+        public DbSet<AtributoOlt> AtributoOlt { get; set; } // DbSet para la tabla 'atributos' en la base de datos
+        public DbSet<TipoOlt> TipoOlt { get; set; } // DbSet para la tabla 'tipoolt' en la base de datos
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             modelBuilder.Entity<FacturaDTO>().HasNoKey(); // Importante: no tiene clave
