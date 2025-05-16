@@ -24,9 +24,12 @@ namespace ApiPruebaVive.Context
         public DbSet<Servicios> Servicio { get; set; } // DbSet para la tabla 'servicios' en la base de datos
         public DbSet<AtributoOlt> AtributoOlt { get; set; } // DbSet para la tabla 'atributos' en la base de datos
         public DbSet<TipoOlt> TipoOlt { get; set; } // DbSet para la tabla 'tipoolt' en la base de datos
+        public DbSet<ServicioDetalleDto> ServiciosDto { get; set; }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             modelBuilder.Entity<FacturaDTO>().HasNoKey(); // Importante: no tiene clave
+            modelBuilder.Entity<ServicioDetalleDto>().HasNoKey().ToView(null);
         }
     }
 }

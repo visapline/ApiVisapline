@@ -40,7 +40,93 @@ namespace ApiPruebaVive.Services.Parsers
             return dispositivos;
         }
 
+        public List<Dispositivo_olt> ObtenerPotenciasRXZte(string query, string oltName, List<Dispositivo_olt> listado)
+        {
+            string[] registros = query.Split('\n');
 
+            foreach (var linea in registros)
+            {
+                if (linea == "------------------------------------\r" || linea.Length < 27)
+                    continue;
+
+                if (linea.Contains("gpon-onu") || linea.Contains("gpon_onu"))
+                {
+                    string[] partes = Regex.Split(linea.TrimEnd('\r'), @"\s+");
+                    if (partes.Length < 2)
+                        continue;
+
+                    string onuIndex = partes[0]; // ej: gpon-onu_1/2:1
+                    string rx = partes[1].Replace("(dbm)", "");
+
+                    string[] indexSplit = onuIndex.Split(':');
+                    string[] location = indexSplit[0].Split('/');
+
+                    if (location.Length < 3)
+                        continue;
+
+                    var tarjeta = location[1];
+                    var puerto = location[2];
+                    var onu = indexSplit[1];
+
+                    var existente = listado.FirstOrDefault(d =>
+                        d.Tarjeta == tarjeta &&
+                        d.Puerto == puerto &&
+                        d.Onu == onu
+                    );
+
+                    if (existente != null)
+                    {
+                        existente.RX = rx;
+                    }
+                }
+            }
+
+            return listado;
+        }
+
+        public List<Dispositivo_olt> ObtenerPotenciasTXZte(string query, string oltName, List<Dispositivo_olt> listado)
+        {
+            string[] registros = query.Split('\n');
+
+            foreach (var linea in registros)
+            {
+                if (linea == "------------------------------------\r" || linea.Length < 27)
+                    continue;
+
+                if (linea.Contains("gpon-onu") || linea.Contains("gpon_onu"))
+                {
+                    string[] partes = Regex.Split(linea.TrimEnd('\r'), @"\s+");
+                    if (partes.Length < 2)
+                        continue;
+
+                    string onuIndex = partes[0]; // ej: gpon-onu_1/2:1
+                    string tx = partes[1].Replace("(dbm)", "");
+
+                    string[] indexSplit = onuIndex.Split(':');
+                    string[] location = indexSplit[0].Split('/');
+
+                    if (location.Length < 3)
+                        continue;
+
+                    var tarjeta = location[1];
+                    var puerto = location[2];
+                    var onu = indexSplit[1];
+
+                    var existente = listado.FirstOrDefault(d =>
+                        d.Tarjeta == tarjeta &&
+                        d.Puerto == puerto &&
+                        d.Onu == onu
+                    );
+
+                    if (existente != null)
+                    {
+                        existente.TX = tx;
+                    }
+                }
+            }
+
+            return listado;
+        }
 
 
     }

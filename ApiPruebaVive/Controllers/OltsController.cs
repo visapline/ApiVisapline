@@ -8,6 +8,9 @@ using Microsoft.EntityFrameworkCore;
 using ApiPruebaVive.Context;
 using ApiPruebaVive.Models;
 using ApiPruebaVive.Dto;
+using Npgsql;
+using ApiPruebaVive.Services.Parsers;
+using ApiPruebaVive.Services;
 
 namespace ApiPruebaVive.Controllers
 {
@@ -16,10 +19,12 @@ namespace ApiPruebaVive.Controllers
     public class OltsController : ControllerBase
     {
         private readonly AppDbContext _context;
+        private readonly TelnetConnectionManager _telnetManager;
 
-        public OltsController(AppDbContext context)
+        public OltsController(AppDbContext context, TelnetConnectionManager telnetManager)
         {
             _context = context;
+            _telnetManager = telnetManager;
         }
 
         // GET: api/Olts
@@ -123,26 +128,76 @@ namespace ApiPruebaVive.Controllers
                 if (olt == null)
                     return NotFound("OLT no encontrada");
 
-                // Obtengo atributos, por si los necesitas luego (pero no para IP y puerto)
-                var atributos = await _context.AtributoOlt
-                    .Where(a => a.IdOlt == olt.IdOlt)
-                    .ToListAsync();
-
                 var ip = olt.Ip;
                 var puertoTelnet = olt.Puerto;
 
                 if (string.IsNullOrWhiteSpace(ip) || puertoTelnet <= 0)
                     return StatusCode(500, "Faltan datos de conexión (IP o puerto)");
 
-                // Probar conexión Telnet
-                var telnet = new TelnetConnection(ip, puertoTelnet);
-                var loginRespuesta = telnet.Login(olt.UsuarioOlt, olt.ContraseniaOlt, 3000);
-                telnet.desconectar();
+                TelnetConnection telnet;
+                try
+                {
+                    telnet = _telnetManager.GetConnection(olt.NombreOlt);
+                }
+                catch (Exception ex)
+                {
+                    return StatusCode(500, $"No se pudo obtener la conexión Telnet: {ex.Message}");
+                }
+
+                telnet.WriteLine("terminal length 0");
+                await Task.Delay(200);
+
+                telnet.WriteLine($"show gpon onu state gpon_olt-1/{request.Tarjeta}/{request.Puerto}");
+                string resultadoOnus = telnet.Read();
+
+                telnet.WriteLine($"show pon power onu-rx gpon_olt-1/{request.Tarjeta}/{request.Puerto}");
+                string resultadoRx = telnet.Read();
+
+                telnet.WriteLine($"show pon power onu-tx gpon_olt-1/{request.Tarjeta}/{request.Puerto}");
+                string resultadoTx = telnet.Read();
+
+               
+
+                var parser = new Zte600Parser();
+
+                var dispositivos = parser.ObtenerDispositivos(resultadoOnus, olt.NombreOlt);
+                dispositivos = parser.ObtenerPotenciasRXZte(resultadoRx, olt.NombreOlt, dispositivos);
+                dispositivos = parser.ObtenerPotenciasTXZte(resultadoTx, olt.NombreOlt, dispositivos);
+
+                // Consultar servicios desde la base de datos para la OLT/tarjeta/puerto
+                var servicios = await ConsultarServiciosAsync(olt.IdOlt, request.Tarjeta, int.Parse(request.Puerto));
+
+                // Cruzar info servicios con dispositivos
+                foreach (var d in dispositivos)
+                {
+                    string onuIndex = d.OnuIndex;
+                    string onuNumberStr = onuIndex.Split(':').Last();
+                    int onuNumber = int.Parse(onuNumberStr);
+                    // Ajusta el criterio de búsqueda si es necesario (aquí usamos referencia de tarjeta y puerto numérico)
+                    var servicio = servicios.FirstOrDefault(s =>
+                        s.ReferenciaTarjeta == d.Tarjeta &&
+                        s.NumeroPuerto == int.Parse(d.Puerto) &&
+                        s.IndicePuerto == onuNumber
+                        );
+
+                    if (servicio != null)
+                    {
+                        d.UserName = servicio.Usuario ?? servicio.UsuarioServicio ?? "";
+                        d.EstadoDb = servicio.EstadoServicio ?? "";
+                        d.EstadocDb = servicio.EstadoContrato ?? "";
+                        d.SerialDb = servicio.Serial ?? "";
+                        d.IdentificacionDb = servicio.Identificacion ?? "";
+
+                        // Estados visuales (solo datos, sin HTML)
+                        d.EstadoRXVisual = (double.TryParse(d.RX, out double rxVal) && rxVal > -28) ? "ok" : "warning";
+                        d.EstadoPhaseStateVisual = d.PhaseState?.ToLower() == "working" ? "ok" : "offline";
+                    }
+                }
 
                 return Ok(new
                 {
                     mensaje = "Conexión Telnet exitosa",
-                    respuestaLogin = loginRespuesta
+                    dispositivos = dispositivos
                 });
             }
             catch (Exception ex)
@@ -152,6 +207,62 @@ namespace ApiPruebaVive.Controllers
                 return StatusCode(500, "Error interno");
             }
         }
+
+
+
+
+
+        private async Task<List<ServicioDetalleDto>> ConsultarServiciosAsync(int idOlt, string tarjeta, int puerto)
+        {
+            var sql = @"
+            SELECT 
+    t.codigo AS Codigo,
+    t.identificacion AS Identificacion,
+    CONCAT(t.nombre, ' ', t.apellido) AS Usuario,
+    t.tipoterceros AS TipoTercero,
+    c.idcont_consecutivo AS IdContrato,
+    ss.idservicios AS IdServicio,
+    cc.estadoc AS EstadoContrato,
+    ss.estado AS EstadoServicio,
+    ss.usser AS UsuarioServicio,
+    ss.inventario_idinventario AS InventarioId,
+    ss.routerboard_idrouterboard AS RouterboardId,
+    ss.direccionip AS DireccionIp,
+    ss.""IndicePuerto"" AS IndicePuerto,
+    ss.""Puerto_idPuerto"" AS PuertoId,
+    iv.idinventario AS InventarioId2,
+    pp.barrios_idbarrios AS BarrioId,
+    bb.barrios AS Barrio,
+    pp.direcion AS Direccion,
+    pp.tipo AS TipoDireccion,
+    iv.serial AS Serial,
+    iv.estado AS EstadoInventario,
+    puerto.numero AS NumeroPuerto,
+    tarjeta.referencia AS ReferenciaTarjeta
+FROM view_terceros(null, null) t 
+INNER JOIN cont_consecutivo c ON c.tercero_idtercero = t.codigo 
+INNER JOIN contrato cc ON cc.codigo = c.idcont_consecutivo 
+INNER JOIN servicios ss ON ss.contrato_idcontrato = cc.idcontrato 
+LEFT JOIN inventario iv ON iv.idinventario = ss.inventario_idinventario 
+INNER JOIN puntos pp ON pp.idpuntos = ss.puntos_idpuntos 
+INNER JOIN barrios bb ON pp.barrios_idbarrios = bb.idbarrios 
+INNER JOIN puerto ON ss.""Puerto_idPuerto"" = puerto.idpuerto 
+INNER JOIN tarjeta ON puerto.tarjeta_idtarjeta = tarjeta.idtarjeta 
+WHERE tarjeta.olt_idolt = @idOlt AND tarjeta.referencia = @tarjeta AND puerto.numero = @puerto
+
+";
+
+            var servicios = await _context.ServiciosDto
+                .FromSqlRaw(sql,
+                    new Npgsql.NpgsqlParameter("idOlt", idOlt),
+                    new Npgsql.NpgsqlParameter("tarjeta", tarjeta),
+                    new Npgsql.NpgsqlParameter("puerto", puerto)
+                )
+                .ToListAsync();
+
+            return servicios;
+        }
+
 
 
     }

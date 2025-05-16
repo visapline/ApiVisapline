@@ -1,7 +1,8 @@
 using ApiPruebaVive.Context;
+using ApiPruebaVive.Models;
+using ApiPruebaVive.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 
@@ -14,16 +15,17 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(connectionString)); // Usa Npgsql para PostgreSQL
 
-
+// Registrar TelnetConnectionManager como singleton
+builder.Services.AddScoped<TelnetConnectionManager>();
 
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("WebApp", policy =>
     {
         policy.WithOrigins("http://localhost:5173", "https://ca.adsodev.com")
-          .AllowAnyMethod()
-          .AllowAnyHeader()
-          .AllowCredentials();
+              .AllowAnyMethod()
+              .AllowAnyHeader()
+              .AllowCredentials();
     });
 });
 
@@ -43,7 +45,6 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
     });
 
-
 // Agregar servicios al contenedor
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
@@ -59,7 +60,6 @@ using (var scope = app.Services.CreateScope())
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     try
     {
-        // Intentamos realizar una consulta simple para verificar la conexión
         dbContext.Database.OpenConnection();
         Console.WriteLine("¡Conexión exitosa a la base de datos!");
     }
@@ -67,6 +67,13 @@ using (var scope = app.Services.CreateScope())
     {
         Console.WriteLine($"Error al conectar a la base de datos: {ex.Message}");
     }
+}
+
+// Inicializar conexiones Telnet solo para OLTs "ZTEC600"
+using (var scope = app.Services.CreateScope())
+{
+    var telnetManager = scope.ServiceProvider.GetRequiredService<TelnetConnectionManager>();
+    await telnetManager.InitializeConnectionsAsync();
 }
 
 // Configurar el pipeline de solicitud HTTP
@@ -81,7 +88,6 @@ app.UseAuthorization();
 
 // Configurar CORS
 app.UseCors("WebApp");
-
 
 app.MapControllers();
 
