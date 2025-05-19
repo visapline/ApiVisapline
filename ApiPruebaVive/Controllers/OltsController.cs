@@ -11,6 +11,7 @@ using ApiPruebaVive.Dto;
 using Npgsql;
 using ApiPruebaVive.Services.Parsers;
 using ApiPruebaVive.Services;
+using System.Text.RegularExpressions;
 
 namespace ApiPruebaVive.Controllers
 {
@@ -264,6 +265,131 @@ WHERE tarjeta.olt_idolt = @idOlt AND tarjeta.referencia = @tarjeta AND puerto.nu
         }
 
 
+        [HttpPost("listar-tarjetas-puertos")]
+        public async Task<IActionResult> ListarTarjetasPuertos([FromBody] ListarTarjetasRequest request)
+        {
+            try
+            {
+                var olt = await _context.Olt
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(o => o.NombreOlt == request.TxtOlt);
+
+                if (olt == null)
+                    return NotFound("OLT no encontrada");
+
+                TelnetConnection telnet;
+                try
+                {
+                    telnet = _telnetManager.GetConnection(olt.NombreOlt);
+                }
+                catch (Exception ex)
+                {
+                    return StatusCode(500, $"No se pudo obtener la conexión Telnet: {ex.Message}");
+                }
+
+                telnet.WriteLine("terminal length 0");
+                await Task.Delay(200);
+
+                telnet.WriteLine("show card");
+                string resultado = telnet.Read();
+
+                var tarjetas = ParseTarjetasCon16Puertos(resultado);
+
+                var tarjetasConPuertos = new List<object>();
+
+                foreach (var tarjeta in tarjetas)
+                {
+                    var estadosPuertos = new List<object>();
+
+                    for (int puerto = 1; puerto <= 16; puerto++)
+                    {
+                        string comando = $"show interface gpon_olt-1/{tarjeta.tarjeta}:{puerto}";
+                        telnet.WriteLine(comando);
+                        await Task.Delay(200);
+                        string salida = telnet.Read();
+
+                        string estadoPuerto = "desconocido";
+                        var lineaEstado = salida.Split('\n').FirstOrDefault(l => l.Contains("Oper state"));
+                        if (lineaEstado != null)
+                        {
+                            if (lineaEstado.Contains("UP"))
+                                estadoPuerto = "verde";
+                            else if (lineaEstado.Contains("DOWN"))
+                                estadoPuerto = "rojo";
+                        }
+
+                        estadosPuertos.Add(new
+                        {
+                            numero = puerto,
+                            estado = estadoPuerto
+                        });
+                    }
+
+                    tarjetasConPuertos.Add(new
+                    {
+                        tarjeta.tarjeta,
+                        tarjeta.tipo,
+                        tarjeta.estado,
+                        puertos = estadosPuertos
+                    });
+                }
+
+                return Ok(new
+                {
+                    mensaje = "Listado de tarjetas con puertos y estados",
+                    tarjetas = tarjetasConPuertos
+                });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"ERROR: {ex.Message}");
+                Console.WriteLine(ex.StackTrace);
+                return StatusCode(500, "Error interno");
+            }
+        }
+
+        // DTO
+        public class ListarTarjetasRequest
+        {
+            public string TxtOlt { get; set; }
+        }
+
+        // Método auxiliar
+        private List<(string tarjeta, int puertos, string tipo, string estado)> ParseTarjetasCon16Puertos(string salidaTelnet)
+        {
+            var resultado = new List<(string tarjeta, int puertos, string tipo, string estado)>();
+
+            var lineas = salidaTelnet.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            bool inicioTabla = false;
+
+            foreach (var linea in lineas)
+            {
+                if (linea.StartsWith("----"))
+                {
+                    inicioTabla = true;
+                    continue;
+                }
+
+                if (!inicioTabla) continue;
+
+                var partes = linea.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                if (partes.Length < 7) continue;
+
+                var slot = partes[1];
+                var cfgType = partes[2];
+                var portCountStr = partes[4];
+                var estado = partes[6];
+
+                if (!int.TryParse(portCountStr, out int portCount)) continue;
+
+                if (portCount == 16)
+                {
+                    resultado.Add((tarjeta: slot, puertos: portCount, tipo: cfgType, estado: estado));
+                }
+            }
+
+            return resultado;
+        }
 
     }
 }

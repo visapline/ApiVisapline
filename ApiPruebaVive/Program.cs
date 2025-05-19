@@ -1,12 +1,19 @@
 using ApiPruebaVive.Context;
+using ApiPruebaVive.Middleware;
 using ApiPruebaVive.Models;
 using ApiPruebaVive.Services;
+using ApiPruebaVive.WebSockets;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 
+
 var builder = WebApplication.CreateBuilder(args);
+
+// Agregar servicios al contenedor 
+builder.Services.AddSingleton<CustomWebSocketManager>();
+builder.Services.AddSingleton<WebSocketHandler>();
 
 // Configurar la cadena de conexión a PostgreSQL
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
@@ -54,6 +61,12 @@ builder.Services.AddAuthorization();
 // Crear la aplicación
 var app = builder.Build();
 
+app.UseWebSockets(new WebSocketOptions
+{
+    KeepAliveInterval = TimeSpan.FromSeconds(120)
+});
+
+
 // Verificar la conexión a la base de datos
 using (var scope = app.Services.CreateScope())
 {
@@ -82,6 +95,9 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+
+
+app.UseMiddleware<WebSocketMiddleware>();
 
 app.UseHttpsRedirection();
 app.UseAuthorization();
