@@ -1,4 +1,5 @@
 using ApiPruebaVive.Context;
+using ApiPruebaVive.Hubs;
 using ApiPruebaVive.Middleware;
 using ApiPruebaVive.Models;
 using ApiPruebaVive.Services;
@@ -18,12 +19,16 @@ builder.Services.AddSingleton<WebSocketHandler>();
 // Configurar la cadena de conexión a PostgreSQL
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 
+builder.Services.AddSignalR();
+
 // Configurar el DbContext para usar PostgreSQL
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(connectionString)); // Usa Npgsql para PostgreSQL
 
 // Registrar TelnetConnectionManager como singleton
 builder.Services.AddScoped<TelnetConnectionManager>();
+builder.Services.AddScoped<IOltStatusService, OltStatusService>();
+//builder.Services.AddHostedService<OltStatusBackgroundService>();
 
 builder.Services.AddCors(options =>
 {
@@ -57,6 +62,9 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddAuthorization();
+
+
+//builder.Services.AddHostedService<OltStatusBackgroundService>();
 
 // Crear la aplicación
 var app = builder.Build();
@@ -106,5 +114,7 @@ app.UseAuthorization();
 app.UseCors("WebApp");
 
 app.MapControllers();
+
+app.MapHub<OltHub>("/oltHub");
 
 app.Run();

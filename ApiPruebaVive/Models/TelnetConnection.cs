@@ -91,16 +91,54 @@ namespace ApiPruebaVive.Models
 
         }
 
-        public string Read()
+        public string Read(int timeoutMs = 3000)
         {
-            if (!tcpSocket.Connected) return null;
-            StringBuilder sb = new StringBuilder();
-            do
+            if (!tcpSocket.Connected)
+                return null;
+
+            var sb = new StringBuilder();
+            var start = DateTime.Now;
+
+            while ((DateTime.Now - start).TotalMilliseconds < timeoutMs)
             {
-                ParseTelnet(sb);
-                System.Threading.Thread.Sleep(TimeOutMs);
-            } while (tcpSocket.Available > 0);
+                if (tcpSocket.Available > 0)
+                {
+                    ParseTelnet(sb);
+                    start = DateTime.Now; // Reinicia el timer porque recibimos datos
+                }
+                else
+                {
+                    Thread.Sleep(50);
+                }
+            }
+
             return sb.ToString();
+        }
+
+        public string ReadUntilPrompt(string prompt = "ZXAN#", int timeoutMs = 8000)
+        {
+            var buffer = new StringBuilder();
+            var start = DateTime.Now;
+
+            while ((DateTime.Now - start).TotalMilliseconds < timeoutMs)
+            {
+                string chunk = Read(500);  // Llama a tu método Read con timeout interno
+                if (!string.IsNullOrEmpty(chunk))
+                {
+                    buffer.Append(chunk);
+
+                    if (buffer.ToString().Contains(prompt))
+                    {
+                        break;
+                    }
+                }
+                else
+                {
+                    Thread.Sleep(50); // Espera un poco antes de seguir leyendo
+                }
+            }
+
+            return buffer.ToString();
         }
 
         public bool IsConnected
